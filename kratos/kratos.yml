@@ -18,8 +18,8 @@ selfservice:
         providers:
           - id: google # this is `<provider-id>` in the Authorization callback URL. DO NOT CHANGE IT ONCE SET!
             provider: generic
-            client_id: 887624964877-h78c4pgqnu26uavfoo3d8s5emobasec4.apps.googleusercontent.com # Replace this with the Client ID
-            client_secret: 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 # Replace this with the Client secret
+            client_id: todo # Replace this with the Client ID
+            client_secret: todo # Replace this with the Client secret
             issuer_url: https://accounts.google.com # Replace this with the providers issuer URL
             mapper_url: file:///etc/config/kratos/oidc.hydra.jsonnet
             # Alternatively, use an URL:
