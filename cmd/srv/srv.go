@@ -10,9 +10,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ale8k/authcode-flow-go-poc/internal/jujumsgs"
+	"github.com/lestrrat-go/jwx/jwa"
+	"github.com/lestrrat-go/jwx/v2/jwt"
+
 	"github.com/gorilla/websocket"
+
 	ory "github.com/ory/client-go"
 	"github.com/ory/x/randx"
 	"golang.org/x/oauth2"
@@ -47,6 +52,8 @@ type Server struct {
 
 	upgrader websocket.Upgrader
 	server   *http.Server
+
+	jwtSecretSigningKey string
 }
 
 func NewServer(ctx context.Context, oidcProviderURL string) *Server {
@@ -64,6 +71,7 @@ func NewServer(ctx context.Context, oidcProviderURL string) *Server {
 			Addr:    ":8080",
 			Handler: mux,
 		},
+		jwtSecretSigningKey: "diglett",
 	}
 
 	if err := s.setupHydra(ctx); err != nil {
@@ -93,14 +101,8 @@ func (s *Server) Start() {
 // This is purely for demonstration purposes and automating the PoC.
 func (s *Server) setupHydra(ctx context.Context) error {
 	oAuth2Client := *ory.NewOAuth2Client()
-	oAuth2Client.SetClientName("jaas")
-	oAuth2Client.SetRedirectUris([]string{"http://127.0.0.1:5556/cb"})
-	oAuth2Client.SetGrantTypes([]string{"authorization_code", "refresh_token"})
-	oAuth2Client.SetResponseTypes([]string{"code", "id_token"})
-	oAuth2Client.SetScope("openid offline email")
-	oAuth2Client.SetTokenEndpointAuthMethod("client_secret_post") // For PKCE, must be post, for normal auth code, it is basic
-	oAuth2Client.SetRequestObjectSigningAlg("RS256")
 
+	// Setup private ory client
 	privateConfiguration := ory.NewConfiguration()
 	privateConfiguration.Servers = []ory.ServerConfiguration{
 		{
@@ -108,6 +110,15 @@ func (s *Server) setupHydra(ctx context.Context) error {
 		},
 	}
 	privateOryClient := ory.NewAPIClient(privateConfiguration)
+
+	// Create the oauth2 client
+	oAuth2Client.SetClientName("jaas")
+	oAuth2Client.SetRedirectUris([]string{"http://127.0.0.1:5556/cb"})
+	oAuth2Client.SetGrantTypes([]string{"authorization_code", "refresh_token"})
+	oAuth2Client.SetResponseTypes([]string{"code", "id_token"})
+	oAuth2Client.SetScope("openid offline email")
+	oAuth2Client.SetTokenEndpointAuthMethod("client_secret_post") // For PKCE, must be post, for normal auth code, it is basic
+	oAuth2Client.SetRequestObjectSigningAlg("RS256")
 
 	jaasOauthClient, _, err := privateOryClient.OAuth2API.CreateOAuth2Client(ctx).OAuth2Client(oAuth2Client).Execute()
 	if err != nil {
@@ -118,6 +129,7 @@ func (s *Server) setupHydra(ctx context.Context) error {
 		ClientSecret: jaasOauthClient.GetClientSecret(),
 		CallbackUrl:  jaasOauthClient.GetRedirectUris()[0],
 	}
+
 	return nil
 }
 
@@ -246,6 +258,24 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 		}
 	}
+}
+
+func (s *Server) mintJWT() []byte {
+	token, _ := jwt.NewBuilder().
+		Audience([]string{"machine id here for the cli? idk"}).
+		Subject("openid token sub?").
+		Issuer("server host").
+		JwtID("some hash").
+		Expiration(time.Now().Add(time.Hour)). // is an hour ok?
+		Build()
+
+	freshToken, _ := jwt.Sign(token, jwt.WithKey(jwa.HS256, s.jwtSecretSigningKey))
+	return freshToken
+}
+
+func (s *Server) parseJWT(token []byte) jwt.Token {
+	parsedToken, _ := jwt.Parse(token, jwt.WithKey(jwa.HS256, s.jwtSecretSigningKey))
+	return parsedToken
 }
 
 func main() {

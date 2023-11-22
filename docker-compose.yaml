@@ -5,6 +5,9 @@
 #   image: oryd/kratos-selfservice-ui-node:v1.0.0
 # http://127.0.0.1:4444/.well-known/openid-configuration
 
+# SET ID  KEY ID                                  ALGORITHM       USE
+# my-set  89706530-c69e-49ac-aa52-eb68a23bacd7    RS256           sig
+
 version: "3.7"
 
 services:
