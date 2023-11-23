@@ -36,6 +36,7 @@ var loginCmd = &cobra.Command{
 			/*
 				Phase 1 of login
 			*/
+			fmt.Println("----- Starting phase 1 of login -----")
 			// Start login method
 			p := map[string]string{
 				"login-type":  "jimm",
@@ -94,11 +95,10 @@ var loginCmd = &cobra.Command{
 				return
 			}
 
-			fmt.Println(authCode)
-
 			/*
 				Phase 2 of login
 			*/
+			fmt.Println("----- Starting phase 2 of login -----")
 			p = map[string]string{
 				"login-type":  "jimm",
 				"login-state": "exchange-auth-code",
@@ -116,11 +116,31 @@ var loginCmd = &cobra.Command{
 				return
 			}
 
-			err = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Connection closed"), time.Now().Add(time.Hour))
-			if err != nil {
-				log.Println("Error sending close message:", err)
+			// Read response, and get access token
+			loginResp = jujumsgs.Message{}
+			if err := conn.ReadJSON(&loginResp); err != nil {
+				log.Println("Failed to read login response: ", err)
 				return
 			}
+
+			respRequest = map[string]string{}
+			b, _ = loginResp.Response.MarshalJSON()
+			if err := json.Unmarshal(b, &respRequest); err != nil {
+				log.Println("Failed to unmarshal login response: ", err)
+				return
+			}
+			fmt.Println(loginResp)
+
+			// Get the access token
+			token := respRequest["access-token"]
+			fmt.Println(respRequest, "<-------------")
+			file, _ := os.Create("./accesstoken.txt")
+			file.WriteString(token)
+			file.Close()
+			// Finish up socket
+			time.Sleep(10 * time.Second)
+			conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Connection closed"), time.Now().Add(time.Hour))
+
 		}
 	},
 }
@@ -170,6 +190,7 @@ func handleLocalRedirectionInterfaceCallback(initialState string, codeChannel ch
 	http.HandleFunc("/cb", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
+
 		fmt.Println("Received code:", code)
 		if state == initialState {
 			fmt.Println("state matches")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -176,8 +177,8 @@ func (s *Server) ExchangeAuthCode(ctx context.Context, authCode string, codeVeri
 
 // GenerateAuthCodeURL
 func (s *Server) GenerateAuthCodeURL() (string, string, string) {
-	codeVerifier := oauth2.GenerateVerifier()
-	codeChallenge := oauth2.S256ChallengeOption(codeVerifier)
+	// codeVerifier := oauth2.GenerateVerifier()
+	// codeChallenge := oauth2.S256ChallengeOption(codeVerifier)
 
 	genState, err := randx.RuneSequence(24, randx.AlphaLower)
 	if err != nil {
@@ -197,13 +198,13 @@ func (s *Server) GenerateAuthCodeURL() (string, string, string) {
 
 	authCodeURL := s.oauthConfig.AuthCodeURL(
 		state,
-		codeChallenge, // Enable PKCE
+		// codeChallenge, // Enable PKCE
 		oauth2.SetAuthURLParam("audience", strings.Join([]string{""}, "+")),
 		oauth2.SetAuthURLParam("nonce", string(nonce)),
 		oauth2.SetAuthURLParam("prompt", strings.Join([]string{""}, "+")),
 		oauth2.SetAuthURLParam("max_age", strconv.Itoa(maxAge)),
 	)
-	return authCodeURL, state, codeVerifier
+	return authCodeURL, state, "codeVerifier"
 }
 
 // Login req/res 1 (auth code url)
@@ -235,7 +236,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				}
 
 				if p.LoginState == RequestAuthCodeUrl {
-
 					// Give client URL to click in login req resp
 					url, _, _ := s.GenerateAuthCodeURL()
 					respMap := map[string]string{
@@ -252,7 +252,40 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				}
 
 				if p.LoginState == ExchangeAuthCode {
-					fmt.Println("AUTH CODE BOYZ: ", p.AuthCode)
+					fmt.Println("Auth code received: ", p.AuthCode)
+					token, err := s.oauthConfig.Exchange(context.Background(), p.AuthCode) // pkce would include oauth2.VerifierOption(codeVerifier)
+					if err != nil {
+						fmt.Println("could not exchange auth code for access/id tokens", err)
+						os.Exit(1)
+					} else {
+						fmt.Println("exchange successful")
+						idToken := token.Extra("id_token")
+						t, ok := idToken.(string)
+						if !ok {
+							fmt.Println("could not parse id token to strring")
+							os.Exit(3)
+						}
+						parsedIdToken, err := jwt.Parse([]byte(t), jwt.WithVerify(false)) // We don't need to verify it do we? or should we against well known?
+						if err != nil {
+							fmt.Println("failed to parse id token ", err)
+						}
+
+						sub := parsedIdToken.Subject()
+						fmt.Println("Subject of id token: ", sub)
+						token := s.mintJWT(sub)
+						fmt.Println("JWT: ", token)
+						respMap := map[string]string{
+							"access-token": base64.StdEncoding.EncodeToString(token),
+						}
+						b, _ = json.Marshal(respMap)
+						if err := conn.WriteJSON(jujumsgs.Message{
+							RequestID: 69,
+							Response:  b,
+						}); err != nil {
+							log.Println("Failed to write json: ", err)
+							return
+						}
+					}
 				}
 			}
 
@@ -260,16 +293,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) mintJWT() []byte {
+func (s *Server) mintJWT(sub string) []byte {
 	token, _ := jwt.NewBuilder().
 		Audience([]string{"machine id here for the cli? idk"}).
-		Subject("openid token sub?").
+		Subject(sub).
 		Issuer("server host").
 		JwtID("some hash").
 		Expiration(time.Now().Add(time.Hour)). // is an hour ok?
 		Build()
 
-	freshToken, _ := jwt.Sign(token, jwt.WithKey(jwa.HS256, s.jwtSecretSigningKey))
+	freshToken, err := jwt.Sign(token, jwt.WithKey(jwa.HS256, []byte(s.jwtSecretSigningKey)))
+	fmt.Println(err)
 	return freshToken
 }
 
