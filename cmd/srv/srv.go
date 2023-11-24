@@ -25,9 +25,10 @@ import (
 )
 
 type jimmLoginRequest struct {
-	LoginType  string `json:"login-type"`
-	LoginState string `json:"login-state"` // 1 of: 'request-auth-code-url', 'exchange-auth-code'
-	AuthCode   string `json:"auth-code,omitempty"`
+	LoginType    string `json:"login-type"`
+	LoginState   string `json:"login-state"` // 1 of: 'request-auth-code-url', 'exchange-auth-code'
+	AuthCode     string `json:"auth-code,omitempty"`
+	AuthCodePort string `json:"auth-code-port,omitempty"`
 }
 
 const (
@@ -114,7 +115,7 @@ func (s *Server) setupHydra(ctx context.Context) error {
 
 	// Create the oauth2 client
 	oAuth2Client.SetClientName("jaas")
-	oAuth2Client.SetRedirectUris([]string{"http://127.0.0.1:5556/cb"})
+	oAuth2Client.SetRedirectUris([]string{"http://127.0.0.1/cb"})
 	oAuth2Client.SetGrantTypes([]string{"authorization_code", "refresh_token"})
 	oAuth2Client.SetResponseTypes([]string{"code", "id_token"})
 	oAuth2Client.SetScope("openid offline email")
@@ -165,7 +166,8 @@ func (s *Server) setupOauthClient(ctx context.Context) {
 			AuthURL:  s.wellKnownConfig.AuthorizationEndpoint, // Because we're providing the auth url to the client here, we need this
 		},
 		Scopes:      []string{"openid", "offline", "email"}, // Because we're providing the auth url to the client here, we need this
-		RedirectURL: s.oauthClientConfig.CallbackUrl,        // fails if doesnt match hydra redirect-url :)
+		RedirectURL: "http://127.0.0.1:5556/cb",             // fails if doesnt match hydra redirect-url :) also because port is dynamic
+		// need to update this
 	}
 	s.oauthConfig = &clientOAuthConfig
 }
