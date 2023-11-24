@@ -164,8 +164,7 @@ func (s *Server) createOauthClient(redirectURLPort string) *oauth2.Config {
 			AuthURL:  s.wellKnownConfig.AuthorizationEndpoint, // Because we're providing the auth url to the client here, we need this
 		},
 		Scopes:      []string{"openid", "offline", "email"},                 // Because we're providing the auth url to the client here, we need this
-		RedirectURL: fmt.Sprintf("http://127.0.0.1:%s/cb", redirectURLPort), // fails if doesnt match hydra redirect-url :) also because port is dynamic
-		// need to update this
+		RedirectURL: fmt.Sprintf("http://127.0.0.1:%s/cb", redirectURLPort), // fails if doesnt match hydra redirect-url :)
 	}
 }
 

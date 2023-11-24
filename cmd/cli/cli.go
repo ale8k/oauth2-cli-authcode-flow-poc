@@ -128,7 +128,6 @@ var loginCmd = &cobra.Command{
 			// Finish up socket
 			time.Sleep(10 * time.Second)
 			conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Connection closed"), time.Now().Add(time.Hour))
-
 		}
 	},
 }
