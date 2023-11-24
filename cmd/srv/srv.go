@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/ale8k/authcode-flow-go-poc/internal/jujumsgs"
-	"github.com/lestrrat-go/jwx/jwa"
+	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 
 	"github.com/gorilla/websocket"
@@ -276,7 +276,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 						sub := parsedIdToken.Subject()
 						fmt.Println("Subject of id token: ", sub)
 						token := s.mintJWT(sub)
-						fmt.Println("JWT: ", token)
+
+						// Example parsing
+						parsedToken, err := s.parseJWT(token)
+						fmt.Println("Parsed token subject: ", parsedToken.Subject(), err)
 						respMap := map[string]string{
 							"access-token": base64.StdEncoding.EncodeToString(token),
 						}
@@ -310,9 +313,9 @@ func (s *Server) mintJWT(sub string) []byte {
 	return freshToken
 }
 
-func (s *Server) parseJWT(token []byte) jwt.Token {
-	parsedToken, _ := jwt.Parse(token, jwt.WithKey(jwa.HS256, s.jwtSecretSigningKey))
-	return parsedToken
+func (s *Server) parseJWT(token []byte) (jwt.Token, error) {
+	parsedToken, err := jwt.Parse(token, jwt.WithKey(jwa.HS256, []byte(s.jwtSecretSigningKey)))
+	return parsedToken, err
 }
 
 func main() {

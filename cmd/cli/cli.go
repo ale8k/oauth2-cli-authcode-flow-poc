@@ -120,11 +120,9 @@ var loginCmd = &cobra.Command{
 				log.Println("Failed to unmarshal login response: ", err)
 				return
 			}
-			fmt.Println(loginResp)
 
 			// Get the access token
 			token := respRequest["access-token"]
-			fmt.Println(respRequest, "<-------------")
 			file, _ := os.Create("./accesstoken.txt")
 			file.WriteString(token)
 			file.Close()
