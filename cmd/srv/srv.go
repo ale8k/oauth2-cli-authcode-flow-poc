@@ -239,9 +239,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 				if p.LoginState == RequestAuthCodeUrl {
 					// Give client URL to click in login req resp
-					url, _, _ := s.GenerateAuthCodeURL()
+					url, state, _ := s.GenerateAuthCodeURL()
 					respMap := map[string]string{
 						"auth-code-url": url,
+						"state":         state,
 					}
 					b, _ = json.Marshal(respMap)
 					if err := conn.WriteJSON(jujumsgs.Message{
