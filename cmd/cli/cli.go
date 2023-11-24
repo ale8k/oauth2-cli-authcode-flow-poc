@@ -75,7 +75,9 @@ var loginCmd = &cobra.Command{
 			server.initialState = respRequest["state"]
 
 			// Tell user to login and wait for auth code retrieval
-			fmt.Println("Please go this url to login: ", authCodeUrl)
+
+			fmt.Printf("Please click \033]8;;%s\033\\here\033]8;;\033\\\n", authCodeUrl)
+			// fmt.Println("Please go this url to login: ", authCodeUrl)
 			authCode := <-server.authCode
 
 			// Shut server down
