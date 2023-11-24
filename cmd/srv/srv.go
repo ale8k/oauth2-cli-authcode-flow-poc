@@ -170,8 +170,8 @@ func (s *Server) createOauthClient(redirectURLPort string) *oauth2.Config {
 
 // GenerateAuthCodeURL
 func (s *Server) GenerateAuthCodeURL(redirectURLPort string) (string, string, string) {
-	// codeVerifier := oauth2.GenerateVerifier()
-	// codeChallenge := oauth2.S256ChallengeOption(codeVerifier)
+	codeVerifier := oauth2.GenerateVerifier()
+	codeChallenge := oauth2.S256ChallengeOption(codeVerifier)
 
 	genState, err := randx.RuneSequence(24, randx.AlphaLower)
 	if err != nil {
@@ -191,13 +191,13 @@ func (s *Server) GenerateAuthCodeURL(redirectURLPort string) (string, string, st
 
 	authCodeURL := s.createOauthClient(redirectURLPort).AuthCodeURL(
 		state,
-		// codeChallenge, // Enable PKCE
+		codeChallenge, // Enable PKCE
 		oauth2.SetAuthURLParam("audience", strings.Join([]string{""}, "+")),
 		oauth2.SetAuthURLParam("nonce", string(nonce)),
 		oauth2.SetAuthURLParam("prompt", strings.Join([]string{""}, "+")),
 		oauth2.SetAuthURLParam("max_age", strconv.Itoa(maxAge)),
 	)
-	return authCodeURL, state, "codeVerifier"
+	return authCodeURL, state, codeVerifier
 }
 
 // Login req/res 1 (auth code url)
@@ -209,6 +209,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	codeVerifier := ""
 	for {
 		fmt.Println("Incoming request")
 		m := jujumsgs.Message{}
@@ -231,7 +232,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				if p.LoginState == RequestAuthCodeUrl {
 					// Give client URL to click in login req resp
 					fmt.Println("Redirect URL port received: ", p.AuthCodePort)
-					url, state, _ := s.GenerateAuthCodeURL(p.AuthCodePort)
+					url, state, verifier := s.GenerateAuthCodeURL(p.AuthCodePort)
+					codeVerifier = verifier
 					respMap := map[string]string{
 						"auth-code-url": url,
 						"state":         state,
@@ -248,7 +250,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 				if p.LoginState == ExchangeAuthCode {
 					fmt.Println("Auth code received: ", p.AuthCode)
-					token, err := s.createOauthClient(p.AuthCodePort).Exchange(context.Background(), p.AuthCode) // pkce would include oauth2.VerifierOption(codeVerifier)
+					fmt.Println("VERIFIER: ", codeVerifier)
+					token, err := s.createOauthClient(p.AuthCodePort).Exchange(context.Background(), p.AuthCode, oauth2.VerifierOption(codeVerifier)) // pkce would include
 					if err != nil {
 						fmt.Println("could not exchange auth code for access/id tokens", err)
 						os.Exit(1)
