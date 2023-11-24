@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
@@ -68,16 +67,8 @@ var loginCmd = &cobra.Command{
 				return
 			}
 
-			authCodeUrl, err := url.Parse(respRequest["auth-code-url"])
-			if err != nil {
-				log.Println("Failed to parse auth code url: ", err)
-				return
-			}
-
-			// Get state so we can match between browser and server endpoint
-			// TODO(babak,ale8k): Let's have this state sent back in the response of the login
-			// request so we don't have to parse it from the URL.
-			initialState := authCodeUrl.Query().Get("state")
+			authCodeUrl := respRequest["auth-code-url"]
+			initialState := respRequest["state"]
 
 			// Make channel to retrieve auth code
 			authCodeChannel := make(chan string)
@@ -86,7 +77,7 @@ var loginCmd = &cobra.Command{
 			srv := handleLocalRedirectionInterfaceCallback(initialState, authCodeChannel)
 
 			// Tell user to login and wait for auth code retrieval
-			fmt.Println("Please go this url to login: ", authCodeUrl.String())
+			fmt.Println("Please go this url to login: ", authCodeUrl)
 			authCode := <-authCodeChannel
 
 			// Shut server down
