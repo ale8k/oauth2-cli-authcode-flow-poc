@@ -1,10 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -30,6 +30,9 @@ var loginCmd = &cobra.Command{
 		}
 		defer conn.Close()
 
+		// Setup server to handle flow
+		server := newAuthLocalServer()
+
 		for {
 			dummyHardcodedRequestId := 69
 			/*
@@ -38,8 +41,9 @@ var loginCmd = &cobra.Command{
 			fmt.Println("----- Starting phase 1 of login -----")
 			// Start login method
 			p := map[string]string{
-				"login-type":  "jimm",
-				"login-state": "request-auth-code-url",
+				"login-type":     "jimm",
+				"login-state":    "request-auth-code-url",
+				"auth-code-port": server.port,
 			}
 			b, _ := json.Marshal(p)
 			if err := conn.WriteJSON(jujumsgs.Message{
@@ -68,20 +72,14 @@ var loginCmd = &cobra.Command{
 			}
 
 			authCodeUrl := respRequest["auth-code-url"]
-			initialState := respRequest["state"]
-
-			// Make channel to retrieve auth code
-			authCodeChannel := make(chan string)
-
-			// Setup server to handle flow
-			srv := handleLocalRedirectionInterfaceCallback(initialState, authCodeChannel)
+			server.initialState = respRequest["state"]
 
 			// Tell user to login and wait for auth code retrieval
 			fmt.Println("Please go this url to login: ", authCodeUrl)
-			authCode := <-authCodeChannel
+			authCode := <-server.authCode
 
 			// Shut server down
-			if err := srv.Shutdown(context.Background()); err != nil {
+			if err := server.shutDown(); err != nil {
 				fmt.Println("failed to shutdown server")
 				return
 			}
@@ -91,9 +89,10 @@ var loginCmd = &cobra.Command{
 			*/
 			fmt.Println("----- Starting phase 2 of login -----")
 			p = map[string]string{
-				"login-type":  "jimm",
-				"login-state": "exchange-auth-code",
-				"auth-code":   authCode,
+				"login-type":     "jimm",
+				"login-state":    "exchange-auth-code",
+				"auth-code":      authCode,
+				"auth-code-port": server.port,
 			}
 			b, _ = json.Marshal(p)
 			if err := conn.WriteJSON(jujumsgs.Message{
@@ -171,17 +170,26 @@ var pingCmd = &cobra.Command{
 	},
 }
 
-func handleLocalRedirectionInterfaceCallback(initialState string, codeChannel chan<- string) *http.Server {
-	fmt.Println("Starting server")
-	server := &http.Server{Addr: ":5556"}
+type authLocalServer struct {
+	initialState string
+	authCode     chan string
+	port         string
+	listener     net.Listener
+}
+
+func newAuthLocalServer() *authLocalServer {
+	server := &authLocalServer{
+		authCode: make(chan string),
+	}
+	mux := http.NewServeMux()
 
 	// Callback handler to get back from the browser
-	http.HandleFunc("/cb", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/cb", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 
 		fmt.Println("Received code:", code)
-		if state == initialState {
+		if state == server.initialState {
 			fmt.Println("state matches")
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte("login complete, please close browser")); err != nil {
@@ -189,15 +197,24 @@ func handleLocalRedirectionInterfaceCallback(initialState string, codeChannel ch
 				return
 			}
 
-			codeChannel <- code
+			server.authCode <- code
 		} else {
 			fmt.Println("state did not match, exiting")
 			return
 		}
 	})
 
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		fmt.Println("failed to spin up a local server: ", err)
+		os.Exit(1)
+	}
+	server.listener = listener
+	server.port = fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
+
 	go func() {
-		if err := server.ListenAndServe(); err != nil {
+		fmt.Println("Starting server:", listener.Addr())
+		if err := http.Serve(listener, mux); err != nil {
 			if err == http.ErrServerClosed {
 				fmt.Println("server closed safely")
 			} else {
@@ -206,8 +223,11 @@ func handleLocalRedirectionInterfaceCallback(initialState string, codeChannel ch
 			}
 		}
 	}()
-
 	return server
+}
+
+func (s *authLocalServer) shutDown() error {
+	return s.listener.Close()
 }
 
 func init() {

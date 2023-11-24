@@ -45,7 +45,6 @@ type oauthClientConfig struct {
 
 type Server struct {
 	oauthClientConfig oauthClientConfig
-	oauthConfig       *oauth2.Config
 
 	oidcProviderURL string
 	wellKnownConfig WellKnownConfiguration
@@ -84,7 +83,6 @@ func NewServer(ctx context.Context, oidcProviderURL string) *Server {
 		fmt.Println("failed to setup wellknown config: ", err)
 		os.Exit(1)
 	}
-	s.setupOauthClient(ctx)
 
 	mux.HandleFunc("/ws", s.handleWS)
 
@@ -156,29 +154,23 @@ func (s *Server) setupWellknownConfig() error {
 	return nil
 }
 
-// setupOauthClient sets up an oauthClient and stores it on the server for later use.
-func (s *Server) setupOauthClient(ctx context.Context) {
-	clientOAuthConfig := oauth2.Config{
+// createOauthClient sets up an oauthClient and stores it on the server for later use.
+func (s *Server) createOauthClient(redirectURLPort string) *oauth2.Config {
+	return &oauth2.Config{
 		ClientID:     s.oauthClientConfig.ClientId,
 		ClientSecret: s.oauthClientConfig.ClientSecret,
 		Endpoint: oauth2.Endpoint{
 			TokenURL: s.wellKnownConfig.TokenEndpoint,
 			AuthURL:  s.wellKnownConfig.AuthorizationEndpoint, // Because we're providing the auth url to the client here, we need this
 		},
-		Scopes:      []string{"openid", "offline", "email"}, // Because we're providing the auth url to the client here, we need this
-		RedirectURL: "http://127.0.0.1:5556/cb",             // fails if doesnt match hydra redirect-url :) also because port is dynamic
+		Scopes:      []string{"openid", "offline", "email"},                 // Because we're providing the auth url to the client here, we need this
+		RedirectURL: fmt.Sprintf("http://127.0.0.1:%s/cb", redirectURLPort), // fails if doesnt match hydra redirect-url :) also because port is dynamic
 		// need to update this
 	}
-	s.oauthConfig = &clientOAuthConfig
-}
-
-// ExchangeAuthCode exchanges an auth code for the desired response types, i.e., code, id token etc.
-func (s *Server) ExchangeAuthCode(ctx context.Context, authCode string, codeVerifier string) (*oauth2.Token, error) {
-	return s.oauthConfig.Exchange(ctx, authCode, oauth2.VerifierOption(codeVerifier))
 }
 
 // GenerateAuthCodeURL
-func (s *Server) GenerateAuthCodeURL() (string, string, string) {
+func (s *Server) GenerateAuthCodeURL(redirectURLPort string) (string, string, string) {
 	// codeVerifier := oauth2.GenerateVerifier()
 	// codeChallenge := oauth2.S256ChallengeOption(codeVerifier)
 
@@ -198,7 +190,7 @@ func (s *Server) GenerateAuthCodeURL() (string, string, string) {
 
 	maxAge := 0
 
-	authCodeURL := s.oauthConfig.AuthCodeURL(
+	authCodeURL := s.createOauthClient(redirectURLPort).AuthCodeURL(
 		state,
 		// codeChallenge, // Enable PKCE
 		oauth2.SetAuthURLParam("audience", strings.Join([]string{""}, "+")),
@@ -239,7 +231,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 				if p.LoginState == RequestAuthCodeUrl {
 					// Give client URL to click in login req resp
-					url, state, _ := s.GenerateAuthCodeURL()
+					fmt.Println("Redirect URL port received: ", p.AuthCodePort)
+					url, state, _ := s.GenerateAuthCodeURL(p.AuthCodePort)
 					respMap := map[string]string{
 						"auth-code-url": url,
 						"state":         state,
@@ -256,7 +249,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 				if p.LoginState == ExchangeAuthCode {
 					fmt.Println("Auth code received: ", p.AuthCode)
-					token, err := s.oauthConfig.Exchange(context.Background(), p.AuthCode) // pkce would include oauth2.VerifierOption(codeVerifier)
+					token, err := s.createOauthClient(p.AuthCodePort).Exchange(context.Background(), p.AuthCode) // pkce would include oauth2.VerifierOption(codeVerifier)
 					if err != nil {
 						fmt.Println("could not exchange auth code for access/id tokens", err)
 						os.Exit(1)
@@ -265,7 +258,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 						idToken := token.Extra("id_token")
 						t, ok := idToken.(string)
 						if !ok {
-							fmt.Println("could not parse id token to strring")
+							fmt.Println("could not parse id token to string")
 							os.Exit(3)
 						}
 						parsedIdToken, err := jwt.Parse([]byte(t), jwt.WithVerify(false)) // We don't need to verify it do we? or should we against well known?
